@@ -268,7 +268,7 @@
 
 <script type="text/babel">
 const { useState, useEffect, useCallback } = React;
-const API = "https://akshay-portfolio-opsl.onrender.com";
+const API = "http://localhost:8000";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 const getToken = () => localStorage.getItem("admin_token");
@@ -774,11 +774,85 @@ function ContactPage({ toast }) {
 }
 
 // ── Icons ──────────────────────────────────────────────────────────────────
+// ── Education ──────────────────────────────────────────────────────────────
+function EducationPage({ toast }) {
+  const [edu, setEdu] = useState([]);
+  const [modal, setModal] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const blank = { degree: "", institution: "", year: "", percentage: "" };
+  const [form, setForm] = useState(blank);
+
+  const load = () => api("GET", "/api/education").then(setEdu);
+  useEffect(() => { load(); }, []);
+
+  const openAdd  = () => { setForm(blank); setModal({ mode: "add" }); };
+  const openEdit = (e) => { setForm({ degree: e.degree, institution: e.institution, year: e.year, percentage: e.percentage }); setModal({ mode: "edit", id: e.id }); };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (modal.mode === "add") await api("POST", "/api/admin/education", form);
+      else await api("PUT", `/api/admin/education/${modal.id}`, form);
+      await load(); setModal(null); toast("Saved successfully", "success");
+    } catch (e) { toast(e.message, "error"); }
+    setSaving(false);
+  };
+
+  const del = async (id) => {
+    if (!confirm("Delete this education entry?")) return;
+    try { await api("DELETE", `/api/admin/education/${id}`); await load(); toast("Deleted", "success"); }
+    catch (e) { toast(e.message, "error"); }
+  };
+
+  const f = (k) => e => setForm({ ...form, [k]: e.target.value });
+
+  return (
+    <div>
+      <div className="page-header" style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start"}}>
+        <div><div className="page-title">Education</div><div className="page-sub">Manage your academic background</div></div>
+        <button className="btn btn-primary" onClick={openAdd}>+ Add Education</button>
+      </div>
+      <div className="card">
+        <table className="table">
+          <thead><tr><th>Degree</th><th>Institution</th><th>Year</th><th>Percentage</th><th>Actions</th></tr></thead>
+          <tbody>
+            {edu.map(e => (
+              <tr key={e.id}>
+                <td style={{fontWeight:500}}>{e.degree}</td>
+                <td style={{color:"var(--muted)"}}>{e.institution}</td>
+                <td><span className="badge badge-green">{e.year}</span></td>
+                <td><span style={{fontFamily:"var(--mono)", fontSize:"0.82rem", color:"var(--accent2)"}}>{e.percentage}</span></td>
+                <td><div className="actions">
+                  <button className="btn btn-ghost btn-sm" onClick={() => openEdit(e)}>Edit</button>
+                  <button className="btn btn-danger btn-sm" onClick={() => del(e.id)}>Delete</button>
+                </div></td>
+              </tr>
+            ))}
+            {edu.length === 0 && <tr><td colSpan="5" style={{textAlign:"center", color:"var(--muted)", padding:"2rem"}}>No education entries yet</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {modal && (
+        <Modal title={modal.mode === "add" ? "Add Education" : "Edit Education"} onClose={() => setModal(null)} onSave={save} saving={saving}>
+          <div className="field"><label>Degree / Course</label><input value={form.degree} onChange={f("degree")} placeholder="e.g. B.Tech – Computer Science" /></div>
+          <div className="field"><label>Institution</label><input value={form.institution} onChange={f("institution")} placeholder="e.g. AKTU, Ghaziabad" /></div>
+          <div className="grid-2">
+            <div className="field"><label>Year</label><input value={form.year} onChange={f("year")} placeholder="e.g. 2019 – 2023" /></div>
+            <div className="field"><label>Percentage / Grade</label><input value={form.percentage} onChange={f("percentage")} placeholder="e.g. 73%" /></div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 const icons = {
   cert: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>,
   project: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>,
   skills: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
   contact: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.4 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.8a16 16 0 0 0 6 6l.86-.86a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
+  education: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>,
   logout: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
 };
 
@@ -787,6 +861,7 @@ const NAV = [
   { key: "projects",       label: "Projects / Repos", icon: icons.project },
   { key: "skills",         label: "Technical Skills", icon: icons.skills },
   { key: "contact",        label: "Contact Info",     icon: icons.contact },
+  { key: "education",      label: "Education",         icon: icons.education },
 ];
 
 // ── App ────────────────────────────────────────────────────────────────────
@@ -800,7 +875,7 @@ function App() {
 
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
-  const pages = { certifications: CertificationsPage, projects: ProjectsPage, skills: SkillsPage, contact: ContactPage };
+  const pages = { certifications: CertificationsPage, projects: ProjectsPage, skills: SkillsPage, contact: ContactPage, education: EducationPage };
   const Page = pages[page];
   const [sideOpen, setSideOpen] = useState(false);
   const closeSide = () => setSideOpen(false);

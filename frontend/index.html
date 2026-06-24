@@ -88,6 +88,26 @@
       color: var(--text);
     }
 
+    .nav-hamburger {
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      gap: 5px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px;
+    }
+
+    .nav-hamburger span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background: var(--text);
+      border-radius: 2px;
+      transition: all 0.25s;
+    }
+
     section {
       padding: 5rem 0;
     }
@@ -112,13 +132,6 @@
       gap: 1rem;
     }
 
-    .hero-eyebrow {
-      font-family: var(--mono);
-      font-size: 0.8rem;
-      color: var(--accent);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-    }
 
     .hero-name {
       font-size: clamp(2.8rem, 6vw, 5rem);
@@ -229,15 +242,6 @@
       z-index: -1;
     }
 
-    .section-label {
-      font-family: var(--mono);
-      font-size: 0.75rem;
-      color: var(--accent);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      margin-bottom: 0.5rem;
-    }
-
     .section-title {
       font-size: 2rem;
       font-weight: 700;
@@ -298,7 +302,7 @@
 
     .projects-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr));
       gap: 1.25rem;
     }
 
@@ -513,7 +517,7 @@
 
     .contact-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
       gap: 1rem;
       margin-top: 2rem;
     }
@@ -607,7 +611,6 @@
     }
 
     @keyframes pulse {
-
       0%,
       100% {
         opacity: 0.2;
@@ -620,13 +623,70 @@
       }
     }
 
+    @media (max-width: 768px) {
+      .skills-grid {
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      }
+
+      .cert-card {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+      }
+
+      .cert-card>div:last-child {
+        flex-direction: row;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .edu-card {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .edu-right {
+        text-align: left;
+      }
+    }
+
     @media (max-width: 640px) {
+
       nav {
         padding: 1rem 1.25rem;
       }
 
+      .nav-hamburger {
+        display: flex;
+      }
+
       .nav-links {
-        gap: 1.25rem;
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        gap: 0;
+        background: rgba(13, 15, 20, 0.98);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--border);
+        padding: 0.25rem 0;
+      }
+
+      .nav-links.nav-open {
+        display: flex;
+      }
+
+      .nav-links li a {
+        display: block;
+        padding: 0.8rem 1.5rem;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.9rem;
+      }
+
+      .nav-links li:last-child a {
+        border-bottom: none;
       }
 
       .container {
@@ -635,6 +695,28 @@
 
       section {
         padding: 3.5rem 0;
+      }
+
+      .hero-cta {
+        flex-direction: column;
+      }
+
+      .hero-cta .btn {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .hero-meta {
+        gap: 0.75rem;
+        flex-direction: column;
+      }
+
+      .projects-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .contact-grid {
+        grid-template-columns: 1fr;
       }
     }
   </style>
@@ -697,14 +779,20 @@
     );
 
     function Nav() {
+      const [open, setOpen] = React.useState(false);
       return (
         <nav>
           <div className="nav-logo">akshay.dev</div>
-          <ul className="nav-links">
+          <ul className={`nav-links${open ? ' nav-open' : ''}`}>
             {["Skills", "Projects", "Education", "Certifications", "Contact"].map(s => (
-              <li key={s}><a href={`#${s.toLowerCase()}`}>{s}</a></li>
+              <li key={s}>
+                <a href={`#${s.toLowerCase()}`} onClick={() => setOpen(false)}>{s}</a>
+              </li>
             ))}
           </ul>
+          <button className="nav-hamburger" onClick={() => setOpen(o => !o)} aria-label="Toggle menu">
+            <span /><span /><span />
+          </button>
         </nav>
       );
     }
@@ -717,7 +805,6 @@
           <div className="bg-glow" />
           <div className="container">
             <div className="hero-grid">
-              
               <h1 className="hero-name">
                 I'm <span>{profile.name.split(' ')[0]}</span><br />{profile.name.split(' ')[1]}
               </h1>
@@ -753,7 +840,6 @@
       return (
         <section id="skills">
           <div className="container">
-            
             <h2 className="section-title">Technical Skills</h2>
             <div className="divider" />
             <div className="skills-grid">
@@ -776,7 +862,6 @@
       return (
         <section id="projects">
           <div className="container">
-            <div className="section-label">// things I've built</div>
             <h2 className="section-title">Projects</h2>
             <div className="divider" />
             <div className="projects-grid">
@@ -815,7 +900,6 @@
       return (
         <section id="education">
           <div className="container">
-            <div className="section-label">// academic background</div>
             <h2 className="section-title">Education</h2>
             <div className="divider" />
             <div className="edu-list">
@@ -842,7 +926,6 @@
       return (
         <section id="certifications">
           <div className="container">
-            <div className="section-label">// credentials</div>
             <h2 className="section-title">Certifications</h2>
             <div className="divider" />
             <div className="cert-list">
@@ -875,7 +958,6 @@
       if (t === "twitter" || t === "x") return <TwitterIcon />;
       if (t === "email") return <MailIcon />;
       if (t === "phone") return <PhoneIcon />;
-      // generic link icon for everything else
       return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...s}>
           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
@@ -918,7 +1000,6 @@
       return (
         <section id="contact">
           <div className="container">
-            <div className="section-label">// get in touch</div>
             <h2 className="section-title">Contact</h2>
             <div className="divider" />
             <div className="contact-grid">

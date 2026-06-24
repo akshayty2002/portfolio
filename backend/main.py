@@ -1,9 +1,9 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import List, Optional, Dict
-import uuid, jwt, datetime, copy
+import uuid, jwt, datetime, json, os, base64, httpx
 
 app = FastAPI(title="Akshay Tyagi Portfolio API")
 
@@ -14,10 +14,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── GitHub DB config (set these as env vars on Render) ────────────────────────
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+GITHUB_REPO  = os.getenv("GITHUB_REPO", "")   # e.g. akshaytyagi0007/portfolio-db
+GITHUB_FILE  = os.getenv("GITHUB_FILE", "db.json")
+GITHUB_API   = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
 
-SECRET_KEY = "akshay-portfolio-secret-2026"  
-ADMIN_USERNAME = "akshay"
-ADMIN_PASSWORD = "Tyagiboy@123"                 
+def github_headers():
+    return {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+def load_from_github() -> dict:
+    """Pull db.json from GitHub and return parsed dict."""
+    try:
+        r = httpx.get(GITHUB_API, headers=github_headers(), timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        content = base64.b64decode(data["content"]).decode("utf-8")
+        return json.loads(content), data["sha"]
+    except Exception as e:
+        print(f"[warn] Could not load from GitHub: {e}")
+        return None, None
+
+def save_to_github(data: dict, sha: str):
+    """Push updated db.json back to GitHub."""
+    try:
+        content = base64.b64encode(
+            json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
+        ).decode("utf-8")
+        payload = {
+            "message": "chore: update portfolio db",
+            "content": content,
+            "sha": sha
+        }
+        r = httpx.put(GITHUB_API, headers=github_headers(), json=payload, timeout=10)
+        r.raise_for_status()
+        # update sha for next write
+        return r.json()["content"]["sha"]
+    except Exception as e:
+        print(f"[warn] Could not save to GitHub: {e}")
+        return sha
+
+# ── Auth config (set SECRET_KEY, ADMIN_USERNAME, ADMIN_PASSWORD on Render) ────
+SECRET_KEY     = os.getenv("SECRET_KEY",     "change-this-secret")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "akshay")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin@2026")
 security = HTTPBearer()
 
 def create_token():
@@ -35,7 +78,7 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-
+# ── In-memory db (default fallback if GitHub unreachable) ─────────────────────
 db = {
     "profile": {
         "name": "Akshay Tyagi",
@@ -78,12 +121,41 @@ db = {
             "location": "Ghaziabad, India",
         },
         "links": [
-            {"id": "l1", "label": "GitHub",   "url": "https://github.com/akshaytyagi0007", "icon": "github", "username": "akshaytyagi0007"},
-            {"id": "l2", "label": "LinkedIn", "url": "", "icon": "linkedin", "username": ""},
+            {"id": "l1", "label": "GitHub",   "url": "https://github.com/akshaytyagi0007", "icon": "github"},
+            {"id": "l2", "label": "LinkedIn", "url": "", "icon": "linkedin"},
         ]
-    }
+    },
+    "education": [
+        {"id": "edu1", "degree": "B.Tech – Computer Science & Engineering", "institution": "Dr. A.P.J. Abdul Kalam Technical University (AKTU)", "year": "2019 – 2023", "percentage": "73%"},
+        {"id": "edu2", "degree": "Intermediate (PCM)", "institution": "Kendriya Vidyalaya, Ghaziabad", "year": "2019", "percentage": "75%"},
+    ]
 }
 
+# sha of the current db.json on GitHub (needed for updates)
+_gh_sha = None
+
+@app.on_event("startup")
+async def startup():
+    """Load latest db from GitHub on startup."""
+    global _gh_sha
+    if GITHUB_TOKEN and GITHUB_REPO:
+        data, sha = load_from_github()
+        if data:
+            db.update(data)
+            _gh_sha = sha
+            print("[info] db loaded from GitHub")
+        else:
+            print("[warn] using default in-memory db")
+    else:
+        print("[info] no GitHub env vars set – using in-memory db only")
+
+def persist():
+    """Save current db to GitHub. Call after every write."""
+    global _gh_sha
+    if GITHUB_TOKEN and GITHUB_REPO:
+        _gh_sha = save_to_github(db, _gh_sha)
+
+# ── Pydantic models ───────────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
     username: str
@@ -116,7 +188,6 @@ class ContactLinkModel(BaseModel):
     label: str
     url: str
     icon: str
-    username: Optional[str] = ""
 
 class ProfileModel(BaseModel):
     name: str
@@ -127,6 +198,13 @@ class ProfileModel(BaseModel):
     github: str
     objective: str
 
+class EducationModel(BaseModel):
+    degree: str
+    institution: str
+    year: str
+    percentage: str
+
+# ── Public routes ─────────────────────────────────────────────────────────────
 
 @app.get("/")
 def root():
@@ -140,9 +218,14 @@ def login(body: LoginRequest):
 
 @app.get("/api/all")
 def get_all():
-    return {**db["profile"], "skills": db["skills"], "certifications": db["certifications"],
-            "projects": [p for p in db["projects"] if p["public"]],
-            "contact": db["contact"]}
+    return {
+        **db["profile"],
+        "skills":         db["skills"],
+        "certifications": db["certifications"],
+        "projects":       [p for p in db["projects"] if p["public"]],
+        "contact":        db["contact"],
+        "education":      db["education"],
+    }
 
 @app.get("/api/profile")
 def get_profile():
@@ -164,17 +247,24 @@ def get_certifications():
 def get_contact():
     return db["contact"]
 
+@app.get("/api/education")
+def get_education():
+    return db["education"]
 
+# ── Admin: Profile ────────────────────────────────────────────────────────────
 
 @app.put("/api/admin/profile", dependencies=[Depends(verify_token)])
 def update_profile(body: ProfileModel):
-    db["profile"].update(body.dict())
+    db["profile"].update(body.model_dump())
+    persist()
     return {"message": "Profile updated"}
 
+# ── Admin: Skills ─────────────────────────────────────────────────────────────
 
 @app.put("/api/admin/skills", dependencies=[Depends(verify_token)])
 def update_skills(body: SkillsModel):
     db["skills"] = body.skills
+    persist()
     return {"message": "Skills updated"}
 
 @app.post("/api/admin/skills/category", dependencies=[Depends(verify_token)])
@@ -185,6 +275,7 @@ def add_skill_category(body: dict):
     if name in db["skills"]:
         raise HTTPException(status_code=400, detail="Category already exists")
     db["skills"][name] = []
+    persist()
     return {"message": f"Category '{name}' added"}
 
 @app.delete("/api/admin/skills/category/{name}", dependencies=[Depends(verify_token)])
@@ -192,20 +283,24 @@ def delete_skill_category(name: str):
     if name not in db["skills"]:
         raise HTTPException(status_code=404, detail="Category not found")
     del db["skills"][name]
+    persist()
     return {"message": f"Category '{name}' deleted"}
 
+# ── Admin: Certifications ─────────────────────────────────────────────────────
 
 @app.post("/api/admin/certifications", dependencies=[Depends(verify_token)])
 def add_certification(body: CertificationModel):
-    cert = {"id": str(uuid.uuid4())[:8], **body.dict()}
+    cert = {"id": str(uuid.uuid4())[:8], **body.model_dump()}
     db["certifications"].append(cert)
+    persist()
     return cert
 
 @app.put("/api/admin/certifications/{cert_id}", dependencies=[Depends(verify_token)])
 def update_certification(cert_id: str, body: CertificationModel):
     for i, c in enumerate(db["certifications"]):
         if c["id"] == cert_id:
-            db["certifications"][i] = {"id": cert_id, **body.dict()}
+            db["certifications"][i] = {"id": cert_id, **body.model_dump()}
+            persist()
             return db["certifications"][i]
     raise HTTPException(status_code=404, detail="Certification not found")
 
@@ -215,20 +310,24 @@ def delete_certification(cert_id: str):
     db["certifications"] = [c for c in db["certifications"] if c["id"] != cert_id]
     if len(db["certifications"]) == before:
         raise HTTPException(status_code=404, detail="Certification not found")
+    persist()
     return {"message": "Deleted"}
 
+# ── Admin: Projects ───────────────────────────────────────────────────────────
 
 @app.post("/api/admin/projects", dependencies=[Depends(verify_token)])
 def add_project(body: ProjectModel):
-    project = {"id": str(uuid.uuid4())[:8], **body.dict()}
+    project = {"id": str(uuid.uuid4())[:8], **body.model_dump()}
     db["projects"].append(project)
+    persist()
     return project
 
 @app.put("/api/admin/projects/{proj_id}", dependencies=[Depends(verify_token)])
 def update_project(proj_id: str, body: ProjectModel):
     for i, p in enumerate(db["projects"]):
         if p["id"] == proj_id:
-            db["projects"][i] = {"id": proj_id, **body.dict()}
+            db["projects"][i] = {"id": proj_id, **body.model_dump()}
+            persist()
             return db["projects"][i]
     raise HTTPException(status_code=404, detail="Project not found")
 
@@ -238,25 +337,30 @@ def delete_project(proj_id: str):
     db["projects"] = [p for p in db["projects"] if p["id"] != proj_id]
     if len(db["projects"]) == before:
         raise HTTPException(status_code=404, detail="Project not found")
+    persist()
     return {"message": "Deleted"}
 
+# ── Admin: Contact ────────────────────────────────────────────────────────────
 
 @app.put("/api/admin/contact/fixed", dependencies=[Depends(verify_token)])
 def update_contact_fixed(body: ContactFixedModel):
-    db["contact"]["fixed"].update(body.dict())
+    db["contact"]["fixed"].update(body.model_dump())
+    persist()
     return {"message": "Contact info updated"}
 
 @app.post("/api/admin/contact/links", dependencies=[Depends(verify_token)])
 def add_contact_link(body: ContactLinkModel):
-    link = {"id": str(uuid.uuid4())[:8], **body.dict()}
+    link = {"id": str(uuid.uuid4())[:8], **body.model_dump()}
     db["contact"]["links"].append(link)
+    persist()
     return link
 
 @app.put("/api/admin/contact/links/{link_id}", dependencies=[Depends(verify_token)])
 def update_contact_link(link_id: str, body: ContactLinkModel):
     for i, l in enumerate(db["contact"]["links"]):
         if l["id"] == link_id:
-            db["contact"]["links"][i] = {"id": link_id, **body.dict()}
+            db["contact"]["links"][i] = {"id": link_id, **body.model_dump()}
+            persist()
             return db["contact"]["links"][i]
     raise HTTPException(status_code=404, detail="Link not found")
 
@@ -266,4 +370,32 @@ def delete_contact_link(link_id: str):
     db["contact"]["links"] = [l for l in db["contact"]["links"] if l["id"] != link_id]
     if len(db["contact"]["links"]) == before:
         raise HTTPException(status_code=404, detail="Link not found")
+    persist()
+    return {"message": "Deleted"}
+
+# ── Admin: Education ──────────────────────────────────────────────────────────
+
+@app.post("/api/admin/education", dependencies=[Depends(verify_token)])
+def add_education(body: EducationModel):
+    edu = {"id": str(uuid.uuid4())[:8], **body.model_dump()}
+    db["education"].append(edu)
+    persist()
+    return edu
+
+@app.put("/api/admin/education/{edu_id}", dependencies=[Depends(verify_token)])
+def update_education(edu_id: str, body: EducationModel):
+    for i, e in enumerate(db["education"]):
+        if e["id"] == edu_id:
+            db["education"][i] = {"id": edu_id, **body.model_dump()}
+            persist()
+            return db["education"][i]
+    raise HTTPException(status_code=404, detail="Education not found")
+
+@app.delete("/api/admin/education/{edu_id}", dependencies=[Depends(verify_token)])
+def delete_education(edu_id: str):
+    before = len(db["education"])
+    db["education"] = [e for e in db["education"] if e["id"] != edu_id]
+    if len(db["education"]) == before:
+        raise HTTPException(status_code=404, detail="Education not found")
+    persist()
     return {"message": "Deleted"}
